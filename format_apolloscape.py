@@ -176,14 +176,17 @@ def apolloscape_to_formatted(DATA_DIR_TRAIN, DATA_DIR_TEST, data_type):
 
         generated_input = []
         generated_result = []
+        counter = 5
         for train_file_name in train_file_names:
             file_name = DATA_DIR_TRAIN + train_file_name 
             generated_one_input, generated_one_result = generate_data(file_name, data_type)
             generated_input += generated_one_input
             generated_result += generated_one_result
-
-        to_save_input_txt = DATA_DIR_TRAIN + 'formatted/train_input.npy'
-        to_save_result_txt = DATA_DIR_TRAIN + 'formatted/train_result.npy'        
+            counter -= 1
+            if counter < 0:
+                break
+        to_save_input_txt = DATA_DIR_TRAIN + 'formatted/train_input_sub.npy'
+        to_save_result_txt = DATA_DIR_TRAIN + 'formatted/train_result_sub.npy'        
 
         print(len(generated_input))
         # for input in generated_input:
@@ -230,7 +233,7 @@ dir = folder_where_unzipped_apolloscape_data_is_present
 DATA_DIR = folder_where_unzipped_apolloscape_data_is_present + '/sample_trajectory/asdt_sample_ trajectory/'
 DATA_DIR_TEST = folder_where_unzipped_apolloscape_data_is_present + '/prediction_test/'
 '''
-dir = '/home/mount/GCN-lstm/data/Aplloscape'
+dir = '/home/mount/GCN-lstm/data/Apolloscape'
 DATA_DIR_TRAIN = dir + '/prediction_train/'
 DATA_DIR_TEST = dir + '/prediction_test/'
 

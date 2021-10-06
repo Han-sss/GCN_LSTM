@@ -1,3 +1,4 @@
+from torch.utils import data
 from torch.utils.data import DataLoader,Dataset
 import matplotlib.pyplot as plt
 import os
@@ -15,23 +16,38 @@ import pickle
 # dir = '/home/mount/GCN-lstm/data/Aplloscape'
 # DATA_DIR = dir + '/prediction_train/'
 # DATA_DIR_TEST = dir + '/prediction_test/'
-
+# total data number is 26909
 
 class trajectory_dataset(Dataset): 
-    def __init__(self, data_dir, datatype = 'train', transform=None):
-        self.root_dir = data_dir   
-        self.transform = transform 
-        if datatype == 'train':
-            s1 = open( self.root_dir + 'stream1_obs_data_train.pkl', 'rb')
-            t1 = open( self.root_dir + 'stream1_pred_data_train.pkl', 'rb')
+    def __init__(self, root_dir, datatype = 'train', transform=None):
+        self.root_dir = root_dir   
+        self.transform = transform
+        self.datatype = datatype
 
+        if datatype == 'train':
+            train_input_dir = self.root_dir+"/prediction_train/formatted/train_input.npy"
+            train_result_dir = self.root_dir+"/prediction_train/formatted/train_result.npy"
+            print(train_input_dir)
+            print(train_result_dir)
+            self.input = np.load(train_input_dir, allow_pickle=True)
+            self.result = np.load(train_result_dir, allow_pickle=True)
+            
         elif datatype == 'test': 
-        
-    
+            train_input_dir = self.root_dir+"/prediction_train/formatted/train_input.npy"
+            self.input = np.load(train_input_dir, allow_pickle=True)
+
+        self.input_len = 6
+        self.node_feature_num = 10
+        self.res_len = 6
+        self.class_num = 5
+
     def __len__(self):
-        return len(self.src1)
+        return len(self.input)
     
     def __getitem__(self,index):
         ### 
-
-        return s1_input_tensor, s1_target_tensor, s2_input_tensor, s2_target_tensor, batch_agent_id, model_target
+        if self.datatype == 'train':
+            return self.input[index], self.result[index]
+            
+        elif self.datatype == 'test':
+            return self.input[index] 

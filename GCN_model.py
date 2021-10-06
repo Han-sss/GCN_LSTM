@@ -12,18 +12,25 @@ class Net(torch.nn.Module):
 
         self.GCNConv1 = GCNConv(self.input_features,self.h1_features)
         self.GCNConv2 = GCNConv(self.h1_features,self.h2_features)
-        self.L1 = torch.nn.Linear(self.h2_features,self.output_features)
 
-    def forward(self, data):
-        x, edge_index = data.x, data.edge_index
+        self.lstm1 = torch.nn.LSTM( self.input_features+output_features, self.h1_features)
+        self.lstm2 = torch.nn.LSTM( self.input_features+output_features, self.h1_features)
+        self.L1 = torch.nn.Linear(self.h2_features,self.output_features)
+        self.L_temp = torch.nn.Linear(self.input_features, self.output_features)
+
+        print("x")
+
+    def forward(self, node_matrix, graph):
+        # x, edge_index = data.x, data.edge_index
         # print(x.size())
 
         # print(type(edge_index),edge_index.size())
-        x = self.GCNConv1(x,edge_index)
+        x = self.GCNConv1(node_matrix, graph)
         x = F.relu(x)
         x = F.dropout(x, training=self.training)
 
-        x = self.GCNConv2(x,edge_index)
+        x = self.GCNConv2(x, graph)
         
         x = self.L1(x)
+
         return x
