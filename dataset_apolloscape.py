@@ -25,8 +25,8 @@ class trajectory_dataset(Dataset):
         self.datatype = datatype
 
         if datatype == 'train':
-            train_input_dir = self.root_dir+"/prediction_train/formatted/train_input.npy"
-            train_result_dir = self.root_dir+"/prediction_train/formatted/train_result.npy"
+            train_input_dir = self.root_dir+"/prediction_train/formatted/train_input_sub.npy"
+            train_result_dir = self.root_dir+"/prediction_train/formatted/train_result_sub.npy"
             print(train_input_dir)
             print(train_result_dir)
             self.input = np.load(train_input_dir, allow_pickle=True)

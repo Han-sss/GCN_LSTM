@@ -2,6 +2,8 @@ import torch
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv
 
+my_token = "y1"
+
 class Net(torch.nn.Module):
     def __init__(self,input_features = 16, hidden_features=512, output_features = 16):
         super(Net, self).__init__()
@@ -18,13 +20,11 @@ class Net(torch.nn.Module):
         self.L1 = torch.nn.Linear(self.h2_features,self.output_features)
         self.L_temp = torch.nn.Linear(self.input_features, self.output_features)
 
-        print("x")
+        print("The token of model is %s"%(my_token))
 
     def forward(self, node_matrix, graph):
-        # x, edge_index = data.x, data.edge_index
-        # print(x.size())
-
-        # print(type(edge_index),edge_index.size())
+        print(node_matrix.size())
+        print(graph.size())        
         x = self.GCNConv1(node_matrix, graph)
         x = F.relu(x)
         x = F.dropout(x, training=self.training)
@@ -33,4 +33,5 @@ class Net(torch.nn.Module):
         
         x = self.L1(x)
 
+        # x_temp = self.L_temp(node_matrix)
         return x

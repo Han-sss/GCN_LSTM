@@ -3,7 +3,10 @@ import numpy as np
 import torch
 
 dis_threshold = 3 # 3 meters
+
 total_object_num = 1453 # in file 9051_7 the index is from 1 to 1453
+test_object_num = 1000 # in file 9051_7 the index is from 1 to 1453
+
 feature_size = 10 # node feature size: frame_id,object_id,object_type,x,y,z,l,w,h,orientation
 
 observe_len = 6 # 3 sec
@@ -136,13 +139,17 @@ def generate_data(file_name, data_type):
             graph_sequence = per_frame_graphs[frame_idx: frame_idx+total_len]
 
             one_packaged_sequence = {}
-            one_packaged_sequence[0] = {'trajectory': object_traj_sequence[0:observe_len], 
-                                        'node_matrix': node_matrix_sequence[0:observe_len], 
-                                        'graph': graph_sequence[0:observe_len]}
+            one_packaged_sequence[0] = {
+                'trajectory': object_traj_sequence[0:observe_len], 
+                'node_matrix': node_matrix_sequence[0:observe_len], 
+                'graph': graph_sequence[0:observe_len]
+            }
 
-            one_packaged_sequence[1] = {'trajectory': object_traj_sequence[observe_len:total_len], 
-                                        'node_matrix': node_matrix_sequence[observe_len:total_len], 
-                                        'graph': graph_sequence[observe_len:total_len]}
+            one_packaged_sequence[1] = {
+                'trajectory': object_traj_sequence[observe_len:total_len], 
+                'node_matrix': node_matrix_sequence[observe_len:total_len], 
+                'graph': graph_sequence[observe_len:total_len]
+            }
             
             packaged_input_sequences.append(one_packaged_sequence[0])
             packaged_result_sequences.append(one_packaged_sequence[1])
@@ -153,9 +160,142 @@ def generate_data(file_name, data_type):
 
     elif data_type == 'test':
         
-        formatted_data = np.delete(data,[2,5,6,7,8,9],axis=1)
+        per_sequence_frame_ids = []
+        one_sequence_frame_ids = []
+        begin_frame_id = 0
+        cur_frame_id = 0
+        for line in data:
+            idx_ofnow = int(line[0])
+            if idx_ofnow - cur_frame_id != 1:
+                if idx_ofnow == cur_frame_id:
+                    continue
+                else:
+                    begin_frame_id = idx_ofnow
+                    cur_frame_id = idx_ofnow
+                    per_sequence_frame_ids.append(one_sequence_frame_ids.copy())
+                    one_sequence_frame_ids.clear()
+
+                    one_sequence_frame_ids.append(cur_frame_id)
+            else:
+                if idx_ofnow - begin_frame_id == 6:
+                    begin_frame_id = idx_ofnow
+                    cur_frame_id = idx_ofnow
+                    per_sequence_frame_ids.append(one_sequence_frame_ids.copy())
+                    one_sequence_frame_ids.clear()
+
+                    one_sequence_frame_ids.append(cur_frame_id)
+                else:
+                    if one_sequence_frame_ids.count(idx_ofnow) == 0:
+                        one_sequence_frame_ids.append(idx_ofnow)
+                        cur_frame_id = idx_ofnow
         
-        return torch.zeros(1,) 
+        per_sequence_frame_ids.pop(0)
+        per_sequence_frame_ids.append(one_sequence_frame_ids.copy())
+
+
+        per_sequence_lines = []
+        per_sequence_object_ids = []
+        line_counter = 0
+        for one_sequence_frame_ids in per_sequence_frame_ids:
+            one_sequence_lines = []
+            one_sequence_object_ids = []
+            for frame_id in one_sequence_frame_ids:
+                for line in data[line_counter:]:
+                    frame_id_ofnow = int(line[0])
+                    object_id_ofnow = int(line[1])
+                    if frame_id_ofnow == frame_id:
+                        one_sequence_lines.append(line)
+                        if one_sequence_object_ids.count(object_id_ofnow) == 0:
+                            one_sequence_object_ids.append(object_id_ofnow)
+                        line_counter += 1
+                    else:
+                        break
+
+            per_sequence_lines.append(torch.stack(one_sequence_lines,dim=0))
+            per_sequence_object_ids.append(one_sequence_object_ids)
+
+        per_frame_lines = []
+        for one_sequence_frame_ids,one_sequence_lines in zip(per_sequence_frame_ids,per_sequence_lines):
+            frame_ids = one_sequence_lines[:,0].tolist()
+            chunk_list = [ frame_ids.count(i) for i in one_sequence_frame_ids ]
+            many_frame_lines = torch.split(one_sequence_lines,chunk_list)
+            for one_frame_lines in many_frame_lines:
+                per_frame_lines.append(one_frame_lines)
+        
+        per_frame_graphs = []
+        per_frame_node_matrix = []
+        per_frame_min_idx = []
+        frame_counter = 0
+        for one_sequence_lines in per_sequence_lines:
+            min_idx = torch.min(one_sequence_lines[:,1])
+
+            for i in range(observe_len):
+                one_frame_graph = []
+                one_frame_node_matrix = torch.zeros(test_object_num,feature_size)
+
+                one_frame_lines = per_frame_lines[frame_counter+i]
+                for object_i in one_frame_lines:
+                    one_frame_node_matrix[int(object_i[1]-min_idx)] = object_i
+                    for object_j in one_frame_lines:
+                        dis = (object_i[3]-object_j[3])**2 + (object_i[4]-object_j[4])**2
+                        if dis <= dis_threshold**2:
+                            one_frame_graph.append(torch.IntTensor([object_i[1]-min_idx,object_j[1]-min_idx]))
+                            # one_frame_graph.append(torch.IntTensor([object_i[1],object_j[1]]))
+                per_frame_graphs.append(torch.stack(one_frame_graph,dim=1))
+                per_frame_node_matrix.append(one_frame_node_matrix)
+                per_frame_min_idx.append(min_idx)
+
+            frame_counter += observe_len
+        
+        objects_trajectory = []
+        for one_sequence_object_ids,one_sequence_frame_ids,one_sequence_lines in zip(per_sequence_object_ids,per_sequence_frame_ids,per_sequence_lines):
+            one_sequence_trajectory = torch.zeros(len(one_sequence_object_ids),observe_len,feature_size)
+            for line in one_sequence_lines:
+                object_id = one_sequence_object_ids.index(int(line[1]))
+                frame_id = one_sequence_frame_ids.index(int(line[0]))
+                one_sequence_trajectory[object_id,frame_id,:] = line
+
+            for trajectory in one_sequence_trajectory:
+                zero_flag = False
+                for step in trajectory:
+                    if int(step[0]) == 0:
+                        zero_flag = True
+                        break
+                if zero_flag:
+                    calibration = 0
+                    for idx,step in enumerate(trajectory):
+                        if int(step[0]) != 0:
+                            calibration = step[0] - idx
+                            break
+                    for idx,step in enumerate(trajectory):
+                        step[0] = calibration + idx
+
+                objects_trajectory.append(trajectory)
+
+        packaged_input_sequences = []
+        for object_trajectory in objects_trajectory:
+            one_packaged_sequence = {}
+            begin_frame_id = int(object_trajectory[0][0])
+            sequence_id = 0
+            for i, one_sequence_frame_ids in enumerate(per_sequence_frame_ids):
+                if begin_frame_id == one_sequence_frame_ids[0]:
+                    sequence_id = i
+                    break
+
+            current_sequence_graphs = per_frame_graphs[sequence_id*6:(sequence_id+1)*6]
+            current_sequence_node_matrixs = per_frame_node_matrix[sequence_id*6:(sequence_id+1)*6]
+            current_sequence_min_idx = per_frame_min_idx[sequence_id*6:(sequence_id+1)*6]
+            one_packaged_sequence = {
+                'trajectory': object_trajectory, 
+                'node_matrix': current_sequence_node_matrixs, 
+                'graph': current_sequence_graphs,
+                'min_idx' : current_sequence_min_idx
+            }
+            packaged_input_sequences.append(one_packaged_sequence)
+
+        file_name = file_name.split('/')
+        print("test set "+file_name[-1]+" generation finished!")        
+        return packaged_input_sequences
 
 def apolloscape_to_formatted(DATA_DIR_TRAIN, DATA_DIR_TEST, data_type):
 
@@ -176,15 +316,15 @@ def apolloscape_to_formatted(DATA_DIR_TRAIN, DATA_DIR_TEST, data_type):
 
         generated_input = []
         generated_result = []
-        counter = 5
+        # counter = 5
         for train_file_name in train_file_names:
             file_name = DATA_DIR_TRAIN + train_file_name 
             generated_one_input, generated_one_result = generate_data(file_name, data_type)
             generated_input += generated_one_input
             generated_result += generated_one_result
-            counter -= 1
-            if counter < 0:
-                break
+            # counter -= 1
+            # if counter < 0:
+            #     break
         to_save_input_txt = DATA_DIR_TRAIN + 'formatted/train_input_sub.npy'
         to_save_result_txt = DATA_DIR_TRAIN + 'formatted/train_result_sub.npy'        
 
@@ -199,29 +339,23 @@ def apolloscape_to_formatted(DATA_DIR_TRAIN, DATA_DIR_TEST, data_type):
     #     save_to_text(formatted_data, to_save_txt)
 
 
-    if data_type == 'val':
-
-        file = DATA_DIR + train_file_names[8]
-
-        generated_data = generate_data(file, data_type)
-
-
-        to_save_txt = './data/APOL/val/valSet0.npy'
-
-        save_to_file( generated_data, to_save_txt)
-
-
     if data_type == 'test':
 
-        file = DATA_DIR_TEST + test_file_names[0]
+        generated_input = []
 
-        generated_data = generate_data(file, data_type)
+        for test_file_name in test_file_names:
+            file_name = DATA_DIR_TEST + test_file_name 
+            generated_one_input = generate_data(file_name, data_type)
+            generated_input += generated_one_input
+            
+        to_save_input_txt = DATA_DIR_TEST + 'formatted/test_input.npy'
+        
+        print(len(generated_input)) #414
+        # for input in generated_input:
+        #     print(input['trajectory'].size())
+        #     print(input['node_matrix'].size())
 
-        print(generated_data[0:100])
-
-        to_save_txt = './resources/data/' + 'APOL/test/testSet0.npy'
-
-        save_to_file( generated_data, to_save_txt)
+        save_to_file( generated_input, to_save_input_txt)
 
 '''
 Instructions for directory structure:
@@ -237,6 +371,6 @@ dir = '/home/mount/GCN-lstm/data/Apolloscape'
 DATA_DIR_TRAIN = dir + '/prediction_train/'
 DATA_DIR_TEST = dir + '/prediction_test/'
 
-data_type = 'train' #train, test
+data_type = 'test' #train, test
 
 apolloscape_to_formatted(DATA_DIR_TRAIN, DATA_DIR_TEST, data_type)

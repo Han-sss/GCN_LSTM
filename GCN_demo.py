@@ -12,10 +12,10 @@ import GCN_help_function as ghf
 import dataset_apolloscape as APOL
 
 epoch_num = 200
-my_token = "f3"
-suffix = "v1"
+my_token = "t82"
+suffix = "t1"
 root_dir = '/home/mount/GCN-lstm/data/Apolloscape'
-writer = SummaryWriter()
+writer = SummaryWriter(comment='GCN_LSTM')
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -32,9 +32,10 @@ APOL_dataloader = DataLoader(
         drop_last=True # ensure the lstm can work successfully
     )
 
-model = GCN_model.Net(input_features=APOL_dataset.node_feature_num, 
-                      output_features=APOL_dataset.class_num
-                      ).to(device)
+model = GCN_model.Net(
+        input_features=APOL_dataset.node_feature_num - 2, 
+        output_features=APOL_dataset.class_num
+    ).to(device)
 
 optimizer = torch.optim.Adam(model.parameters(), 
                             lr=0.0001,
@@ -57,16 +58,21 @@ for epoch in range(epoch_num):
         graphs = input['graph']
         
         node_matrix = node_matrixs[0][0]
+
+        idx = torch.nonzero(node_matrix[:,1], as_tuple=True)[0]
+        target = node_matrix[idx,2]-1
+
+        node_matrix = node_matrix[:,(0,3,4,5,6,7,8,9)]
         graph = graphs[0][0]
         
-        idx = torch.nonzero(node_matrix[:,1], as_tuple=True)[0]
         node_matrix = node_matrix.to(device)
         graph = graph.long().to(device)
         
         output = model(node_matrix,graph)
-        target = node_matrix[idx,2].long()
+        output = output[idx]
         
-        loss = criterion(output[idx], target-1)
+        target = target.long().to(device)
+        loss = criterion(output, target)
         loss_sum += loss
         
         loss.backward()
@@ -76,22 +82,27 @@ for epoch in range(epoch_num):
     writer.add_scalar('Loss/train', loss_sum, epoch)
     print("the loss of epoch %d is: %f"%(epoch,loss_sum))
 
-    if (epoch+1) % 10 == 0:
+    if epoch % 10 == 0:
         with torch.no_grad():
             node_matrixs = APOL_dataset[0][1]['node_matrix']
             graphs = APOL_dataset[0][1]['graph']
 
             node_matrix = node_matrixs[0]
-            graph = graphs[0]
             
             idx = torch.nonzero(node_matrix[:,1],as_tuple=True)[0]
+            target = node_matrix[idx,2]-1
+
+            node_matrix = node_matrix[:,(0,3,4,5,6,7,8,9)]
+            graph = graphs[0]
+
             node_matrix = node_matrix.to(device)
             graph = graph.long().to(device)
+            
             _,pred = model(node_matrix,graph).max(dim=1)
+            pred = pred[idx]
+            target = target.long().to(device)
             
-            target = node_matrix[idx,2].long()
-            correct = float(pred[idx].eq(target-1).sum().item())
-            
+            correct = float(pred.eq(target).sum().item())
             acc = correct / len(idx)
 
             writer.add_scalar('Acc/train', acc, epoch)
@@ -101,13 +112,40 @@ for epoch in range(epoch_num):
                 torch.save(model.state_dict(),'GCN_model_params_%s.pth'%(suffix))
                 print('Acc of epoch {}: {:.4f}'.format(epoch,acc))
                 
-writer.close()
+
+
 
 model.load_state_dict(torch.load('GCN_model_params_%s.pth'%(suffix)))
-model.eval() #モデルを評価モードにする。
-_, pred = model(data).max(dim=1)
-correct = float(pred[data.test_mask].eq(data.y[data.test_mask]).sum().item())
-acc = correct / data.test_mask.sum().item()
-print('Acc: {:.4f}'.format(acc))
 
-print(type(data))
+for name, param in model.named_parameters():
+    if param.requires_grad:
+        if (name == 'L_temp.weight') | (name == 'L_temp.bias'):
+            print(name)
+            print(param.data)
+
+model.eval() #モデルを評価モードにする。
+
+node_matrixs = APOL_dataset[100][1]['node_matrix']
+graphs = APOL_dataset[100][1]['graph']
+
+node_matrix = node_matrixs[0]
+            
+idx = torch.nonzero(node_matrix[:,1],as_tuple=True)[0]
+target = node_matrix[idx,2]-1
+
+node_matrix = node_matrix[:,(0,3,4,5,6,7,8,9)]
+graph = graphs[0]
+
+node_matrix = node_matrix.to(device)
+graph = graph.long().to(device)
+
+_,pred = model(node_matrix,graph).max(dim=1)
+pred = pred[idx]
+target = target.long().to(device)
+
+correct = float(pred.eq(target).sum().item())
+acc = correct / len(idx)
+
+print('The final Acc of test is: {:.4f}'.format(acc))
+writer.add_scalar('Acc/test', acc)
+writer.close()
